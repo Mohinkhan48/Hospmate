@@ -45,11 +45,36 @@ export const notifyRoutes = async (fastify: FastifyInstance, options: FastifyPlu
 
             return reply.code(202).send({
                 status: 'QUEUED',
-                message: 'Notification trigger received and queued.'
+                message: 'Notification trigger received and queued.',
+                jobId: jobId
             });
         } catch (err: any) {
             fastify.log.error(err, `Failed to queue notification for job ${jobId}`);
             return reply.code(500).send({ error: 'Failed to queue notification' });
+        }
+    });
+
+    fastify.get('/notify/:jobId/status', async (request: FastifyRequest, reply: FastifyReply) => {
+        const { jobId } = request.params as { jobId: string };
+        const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+
+        try {
+            const state = await connection.get(`notification:state:${jobId}`);
+            const data = await connection.get(`notification:data:${jobId}`); // Original request data
+            const assets = await connection.get(`notification:assets:${jobId}`); // Transcript/Audio
+
+            if (!state) {
+                return reply.code(404).send({ error: 'Job not found' });
+            }
+
+            return reply.code(200).send({
+                jobId,
+                status: state,
+                assets: assets ? JSON.parse(assets) : null
+            });
+        } catch (err) {
+            fastify.log.error(err);
+            return reply.code(500).send({ error: 'Failed to fetch status' });
         }
     });
 };

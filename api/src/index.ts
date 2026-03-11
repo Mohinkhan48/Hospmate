@@ -5,6 +5,7 @@ import Fastify from 'fastify';
 import process from 'process';
 import { notifyRoutes } from './routes/notify';
 import { webhookRoutes } from './routes/webhooks';
+import { syncStatusRoutes } from './routes/syncStatus';
 import { startWorker } from './workers/notificationWorker';
 
 const fastify = Fastify({
@@ -32,6 +33,7 @@ fastify.get('/health', async (request: any, reply: any) => {
 // Register routes
 fastify.register(notifyRoutes, { prefix: '/v1' });
 fastify.register(webhookRoutes, { prefix: '/v1' });
+fastify.register(syncStatusRoutes, { prefix: '/v1' });
 
 const start = async () => {
     try {

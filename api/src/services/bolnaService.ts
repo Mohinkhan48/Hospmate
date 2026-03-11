@@ -42,9 +42,27 @@ export const initiateBolnaCall = async (patientData: any, contextData: any, jobI
             }
         });
 
+        // Response format: { "call_id": "...", "status": "queued", ... }
         return response.data;
     } catch (error: any) {
         console.error("Bolna API Error:", error.response?.data || error.message);
         throw new Error("Failed to initiate Bolna voice call");
+    }
+};
+
+export const getBolnaCallStatus = async (callId: string) => {
+    const BOLNA_API_KEY = process.env.BOLNA_API_KEY;
+
+    try {
+        const response = await axios.get(`${BOLNA_API_URL}/${callId}`, {
+            headers: {
+                'Authorization': `Bearer ${BOLNA_API_KEY}`
+            }
+        });
+
+        return response.data;
+    } catch (error: any) {
+        console.error("Bolna Status API Error:", error.response?.data || error.message);
+        throw new Error("Failed to fetch Bolna call status");
     }
 };

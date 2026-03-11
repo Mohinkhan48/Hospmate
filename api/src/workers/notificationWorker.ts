@@ -39,7 +39,13 @@ export const startWorker = () => {
 
                 // Phase 2: Call Bolna.ai
                 console.log(`[Bolna] Initiating call to ${patient.phone}`);
-                await initiateBolnaCall(patient, context, job.id as string);
+                const bolnaResponse = await initiateBolnaCall(patient, context, job.id as string);
+
+                // Save Call ID for local polling/sync
+                if (bolnaResponse && bolnaResponse.call_id) {
+                    await connection.set(`notification:call_id:${job.id}`, bolnaResponse.call_id);
+                    console.log(`[Bolna] Call ID saved: ${bolnaResponse.call_id}`);
+                }
 
                 // Initial state update - webhook will refine this to CALL_IN_PROGRESS
                 await connection.set(stateKey, 'CALL_INITIATED');

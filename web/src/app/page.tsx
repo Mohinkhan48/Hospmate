@@ -1,17 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { StatsCard } from '@/components/StatsCard';
+import { ActionCard } from '@/components/ActionCard';
+import { ActivityFeed } from '@/components/ActivityFeed';
+import { Phone, CheckCircle, Clock, BarChart3 } from 'lucide-react';
 
 export default function Home() {
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState<string | null>(null);
-    const [patientId, setPatientId] = useState('123'); // Default to trial user
-    const [reason, setReason] = useState('LAB_REPORT_READY');
-    const [location, setLocation] = useState('Counter 4 (Lab)');
+    const [jobId, setJobId] = useState<string | null>(null);
+    const [callState, setCallState] = useState<string | null>(null);
+    const [assets, setAssets] = useState<any>(null);
 
-    const handleCall = async () => {
+    // Dashboard Stats (Mock Data for Visual)
+    const stats = [
+        { label: 'Total Calls Today', value: '42', icon: Phone, color: 'indigo' as const, trend: '+12%', trendUp: true },
+        { label: 'Success Rate', value: '94%', icon: CheckCircle, color: 'emerald' as const, trend: '+4%', trendUp: true },
+        { label: 'Avg. Duration', value: '1m 24s', icon: Clock, color: 'violet' as const, trend: '-12s', trendUp: false },
+        { label: 'Pending Response', value: '3', icon: BarChart3, color: 'rose' as const, trend: '2 urgent', trendUp: false },
+    ];
+
+    const handleCall = async (patientId: string, reason: string, location: string) => {
         setLoading(true);
         setStatus('Initiating call...');
+        setCallState('CALL_INITIATED');
+        setAssets(null);
+        setJobId(null);
 
         try {
             const response = await fetch('/api/notify', {
@@ -21,7 +36,7 @@ export default function Home() {
                     tenant_id: 'test-hospital',
                     patient: {
                         id: patientId,
-                        name: 'Rayan',
+                        name: 'Rayan', // In a real app, fetch name based on ID
                         phone: '+919611554809' // Hardcoded for verified trial
                     },
                     context: {
@@ -38,102 +53,120 @@ export default function Home() {
             const data = await response.json();
 
             if (response.ok) {
-                setStatus(`Success: ${data.message} (Job Queued)`);
+                setStatus(`Success: ${data.message}`);
+                if (data.jobId) {
+                    setJobId(data.jobId);
+                }
             } else {
                 setStatus(`Error: ${data.error || 'Request failed'}`);
+                setCallState('CALL_FAILED');
+                setLoading(false);
             }
         } catch (err: any) {
             setStatus(`System Error: ${err.message}`);
-        } finally {
+            setCallState('CALL_FAILED');
             setLoading(false);
         }
     };
 
+    // Polling Logic with Timeout Protection
+    useEffect(() => {
+        if (!jobId) return;
+
+        let pollCount = 0;
+        const MAX_POLLS = 60; // 60 polls × 3 seconds = 3 minutes max
+
+        // Primary Poll (Local State)
+        const interval = setInterval(async () => {
+            pollCount++;
+
+            // Timeout protection - stop after 3 minutes
+            if (pollCount >= MAX_POLLS) {
+                console.warn(`[Polling] Timeout reached for job ${jobId}`);
+                setCallState('CALL_TIMEOUT');
+                setLoading(false);
+                clearInterval(interval);
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/status?jobId=${jobId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setCallState(data.status);
+
+                    if (data.assets) {
+                        setAssets(data.assets);
+                    }
+
+                    // Stop polling if final state reached (including failures)
+                    const terminalStates = [
+                        'COMPLETED_AGREED',
+                        'COMPLETED_DISAGREED',
+                        'COMPLETED_NO_ANSWER',
+                        'WHATSAPP_SENT',
+                        'CALL_FAILED',
+                        'CALL_TIMEOUT'
+                    ];
+
+                    if (terminalStates.includes(data.status)) {
+                        console.log(`[Polling] Terminal state reached: ${data.status}`);
+                        setLoading(false);
+                        clearInterval(interval);
+                        clearInterval(syncInterval); // Stop sync polling too
+                    }
+                }
+            } catch (e) {
+                console.error("Polling error", e);
+            }
+        }, 3000); // Poll every 3 seconds
+
+        // Secondary Poll (Sync with Bolna) - Solves Localhost Webhook Issue
+        const syncInterval = setInterval(async () => {
+            try {
+                // This forces the backend to ask Bolna "Is the call done?"
+                await fetch(`/api/sync-status?jobId=${jobId}`);
+            } catch (e) {
+                console.error("Sync error", e);
+            }
+        }, 5000); // Sync every 5 seconds
+
+        return () => {
+            clearInterval(interval);
+            clearInterval(syncInterval);
+        };
+    }, [jobId]);
+
     return (
-        <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-gray-50">
-            <div className="z-10 max-w-lg w-full font-mono text-sm">
-                <div className="bg-white shadow-xl rounded-lg p-8 w-full border border-gray-200">
-                    <div className="mb-6 text-center">
-                        <h1 className="text-3xl font-bold text-gray-800">
-                            K-Voice Console
-                        </h1>
-                        <p className="text-gray-500 mt-2">Patient Notification System / Bolna.ai</p>
-                    </div>
-
-                    <div className="space-y-6">
-
-                        {/* Patient Selection */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Select Verified Patient</label>
-                            <select
-                                value={patientId}
-                                onChange={(e) => setPatientId(e.target.value)}
-                                className="w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-black bg-white"
-                            >
-                                <option value="123">Rayan (+91 9611554809)</option>
-                                <option value="999" disabled>More patients (Upgrade Plan)</option>
-                            </select>
-                        </div>
-
-                        {/* Reason Selection */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Notification Reason</label>
-                            <select
-                                value={reason}
-                                onChange={(e) => setReason(e.target.value)}
-                                className="w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-black bg-white"
-                            >
-                                <option value="LAB_REPORT_READY">Lab Report Ready</option>
-                                <option value="APPOINTMENT_REMINDER">Appointment Reminder</option>
-                                <option value="BILL_PAYMENT_PENDING">Bill Payment Pending</option>
-                                <option value="DISCHARGE_SUMMARY_READY">Discharge Summary Ready</option>
-                                <option value="DOCTOR_ROUND_STARTING">Doctor Round Starting</option>
-                            </select>
-                        </div>
-
-                        {/* Location Selection */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Report To Location</label>
-                            <select
-                                value={location}
-                                onChange={(e) => setLocation(e.target.value)}
-                                className="w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-black bg-white"
-                            >
-                                <option value="Counter 4 (Lab)">Counter 4 (Lab)</option>
-                                <option value="Counter 1 (Reception)">Counter 1 (Reception)</option>
-                                <option value="Room 101">Room 101</option>
-                                <option value="Room 202">Room 202</option>
-                                <option value="Emergency Ward">Emergency Ward</option>
-                                <option value="Pharmacy">Pharmacy</option>
-                            </select>
-                        </div>
-
-                        {/* Action Button */}
-                        <button
-                            onClick={handleCall}
-                            disabled={loading}
-                            className={`w-full py-4 px-4 rounded-md text-white font-bold text-lg transition-transform transform active:scale-95 ${loading
-                                    ? 'bg-gray-400 cursor-not-allowed'
-                                    : 'bg-green-600 hover:bg-green-700 shadow-lg'
-                                }`}
-                        >
-                            {loading ? '📡 Initiating...' : '📞 TRIGGER NOTIFICATION'}
-                        </button>
-
-                        {/* Status Display */}
-                        {status && (
-                            <div className={`mt-6 p-4 rounded-md border ${status.startsWith('Success')
-                                    ? 'bg-green-50 border-green-200 text-green-800'
-                                    : 'bg-red-50 border-red-200 text-red-800'
-                                }`}>
-                                <p className="font-semibold text-center">{status}</p>
-                            </div>
-                        )}
-
-                    </div>
+        <div className="space-y-8">
+            {/* Header / Stats Section */}
+            <div>
+                <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 mb-6">
+                    Dashboard Overview
+                </h1>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {stats.map((stat, i) => (
+                        <StatsCard key={i} {...stat} delay={i * 0.1} />
+                    ))}
                 </div>
-                <p className="text-center text-gray-400 mt-8 text-xs">System running on Port 3000 (Web) & 3003 (Worker)</p>
             </div>
-        </main>
+
+            {/* Main Content Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left Column: Actions */}
+                <div className="lg:col-span-2 space-y-6">
+                    <ActionCard
+                        onTrigger={handleCall}
+                        loading={loading}
+                        callState={callState}
+                    />
+                </div>
+
+                {/* Right Column: Live Feed */}
+                <div className="space-y-6">
+                    <ActivityFeed status={callState} assets={assets} />
+                </div>
+            </div>
+        </div>
     );
 }
